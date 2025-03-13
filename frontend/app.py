@@ -83,11 +83,11 @@ if st.session_state.extracted_data:
     word_count = len(words)
 
     if word_count > 0:
-        st.write("Extracted Results (You can edit the text areas, then click 'p' to preview the PDF chunk):")
+        st.write("Extracted Results (You can edit the text areas, then click the Preview button):")
 
         for i in range(word_count):
-            # Create row with 3 columns: left (word + text areas), middle (p buttons), right (PDF viewer)
-            row_cols = st.columns([7, 1, 5])
+            # Create row with 2 columns: left (word + text areas + preview buttons), right (PDF viewer)
+            row_cols = st.columns([8, 7])
 
             with row_cols[0]:
                 # Show the word in large bold text
@@ -95,38 +95,40 @@ if st.session_state.extracted_data:
                     f"<span style='font-size: 24px; font-weight: bold;'>{words[i]}</span>",
                     unsafe_allow_html=True
                 )
-                # For each PDF, show an editable text area
-                for pdf_name in pdf_names:
-                    chunk_data = st.session_state.extracted_data[pdf_name][i]
-                    if chunk_data:
-                        st.markdown(f"• {pdf_name}")
-                        default_text = chunk_data["content"]
-                        # Use a text_area for multi-line editing
-                        updated_text = st.text_area(
-                            label=f"{pdf_name} - {words[i]}",
-                            value=default_text,
-                            key=f"txt_{pdf_name}_{i}",
-                            height=100
-                        )
 
-            with row_cols[1]:
-                # Place the "p" buttons for each PDF chunk
+                # For each PDF, show both the editable text area and the Preview button side by side
                 for pdf_name in pdf_names:
                     chunk_data = st.session_state.extracted_data[pdf_name][i]
                     if chunk_data:
-                        if st.button("p", key=f"pb_{pdf_name}_{i}"):
-                            st.session_state.selected_pdf = pdf_name
-                            st.session_state.selected_page = chunk_data["page_number"]
-                            st.session_state.selected_bbox = chunk_data["bbox"]
-                            st.session_state.selected_row = i
+                        default_text = chunk_data["content"]
+                        
+                        # Create two columns for each PDF's row: text area (left) and preview button (right)
+                        pdf_row_cols = st.columns([10, 1])  # reduce the width of the button column
+                        with pdf_row_cols[0]:
+                            # Use a text_area for multi-line editing
+                            updated_text = st.text_area(
+                                label=f"{pdf_name} - {words[i]}",
+                                value=default_text,
+                                key=f"txt_{pdf_name}_{i}",
+                                height=100
+                            )
+
+                        with pdf_row_cols[1]:
+                            # Place a more descriptive and stylish button (no custom CSS/HTML)
+                            if st.button("Voir 🔍", key=f"pb_{pdf_name}_{i}"):
+                                st.session_state.selected_pdf = pdf_name
+                                st.session_state.selected_page = chunk_data["page_number"]
+                                st.session_state.selected_bbox = chunk_data["bbox"]
+                                st.session_state.selected_row = i
 
             # If this row is selected, show the pdf_viewer in the right column
-            with row_cols[2]:
-                if (st.session_state.selected_row == i and 
+            with row_cols[1]:
+                if (
+                    st.session_state.selected_row == i and
                     st.session_state.selected_pdf and
-                    st.session_state.selected_page is not None and 
-                    st.session_state.selected_bbox):
-                    
+                    st.session_state.selected_page is not None and
+                    st.session_state.selected_bbox
+                ):
                     pdf_name = st.session_state.selected_pdf
                     pdf_path = st.session_state[pdf_name]
                     page = int(st.session_state.selected_page)
