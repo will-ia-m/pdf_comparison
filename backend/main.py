@@ -90,6 +90,8 @@ def extract_words(pdf_name: str):
     For a given PDF name (already uploaded / cached),
     return a list of chunks that correspond to the first chunk
     containing each word (in WORDS_TO_EXTRACT).
+    The index of the chunk in the returned list corresponds
+    to the index of each word in WORDS_TO_EXTRACT.
     """
     chunks = PDF_CACHE.get(pdf_name, [])
     result = []
@@ -105,3 +107,11 @@ def extract_words(pdf_name: str):
         result.append(match_chunk)
     
     return JSONResponse(result)
+
+
+@app.get("/words")
+def get_words():
+    """
+    Return the list of words to extract from config.yaml
+    """
+    return JSONResponse(WORDS_TO_EXTRACT)
