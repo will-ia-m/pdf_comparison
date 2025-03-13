@@ -9,11 +9,11 @@ BACKEND_URL = "http://localhost:8000"
 # Use wide layout
 st.set_page_config(layout="wide")
 
-st.title("PDF Extraction & Highlighting")
+st.title("Termsheet cross-evaluation")
 
 # File uploader for multiple PDFs
 uploaded_pdfs = st.file_uploader(
-    "Upload PDF files",
+    "Upload PDF files of termsheets",
     type=["pdf"],
     accept_multiple_files=True
 )
@@ -32,7 +32,7 @@ if "selected_bbox" not in st.session_state:
 if "selected_row" not in st.session_state:
     st.session_state.selected_row = None
 
-process_button = st.button("Process")
+process_button = st.button("Extract key elements from selected termsheets")
 
 # Store uploaded PDFs in temp files
 if uploaded_pdfs:
@@ -68,9 +68,6 @@ if process_button and uploaded_pdfs:
         else:
             st.error(f"Failed to extract words for {pdf_name}: {resp.text}")
 
-# If extracted data is available, we'll loop row by row, and for each row:
-#   - display the row content (label + PDF buttons) in the left 3/4
-#   - reserve the right 1/4 for the pdf_viewer if this row is selected.
 if st.session_state.extracted_data:
     pdf_names = list(st.session_state.extracted_data.keys())
     word_count = len(st.session_state.extracted_data[pdf_names[0]])
