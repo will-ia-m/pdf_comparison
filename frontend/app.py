@@ -6,7 +6,9 @@ import tempfile
 # Assume backend is running locally on port 8000
 BACKEND_URL = "http://localhost:8000"
 
-st.set_page_config(layout="wide")  # Utilize the full width of the page
+# Use wide layout
+st.set_page_config(layout="wide")
+
 st.title("PDF Extraction & Highlighting")
 
 # File uploader for multiple PDFs
@@ -30,27 +32,22 @@ if "selected_bbox" not in st.session_state:
 
 process_button = st.button("Process")
 
-
-
-# After the file is uploaded:
+# Store uploaded PDFs in temp files
 if uploaded_pdfs:
     for pdf_file in uploaded_pdfs:
-        # Create a temporary file to store the PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(pdf_file.getvalue())
-            # Save the temporary file path to session state for later use
-            st.session_state[pdf_file.name] = tmp.name
+            st.session_state[pdf_file.name] = tmp.name  # store path in session
 
-
+# Process PDFs
 if process_button and uploaded_pdfs:
     # Clear old results
     st.session_state.pdf_chunks = {}
     st.session_state.extracted_data = {}
     
+    # 1) /reader
     for pdf_file in uploaded_pdfs:
         pdf_name = pdf_file.name
-        
-        # Send the PDF to the backend's /reader route
         files = {
             "pdf_file": (pdf_file.name, pdf_file.getvalue(), "application/pdf")
         }
@@ -60,7 +57,7 @@ if process_button and uploaded_pdfs:
         else:
             st.error(f"Failed to process {pdf_name}: {response.text}")
     
-    # Now that we've cached each PDF, call /extract for each
+    # 2) /extract
     for pdf_file in uploaded_pdfs:
         pdf_name = pdf_file.name
         resp = requests.get(f"{BACKEND_URL}/extract", params={"pdf_name": pdf_name})
@@ -69,52 +66,48 @@ if process_button and uploaded_pdfs:
         else:
             st.error(f"Failed to extract words for {pdf_name}: {resp.text}")
 
-# Display table and PDF viewer if we have extracted data
+# Display the table (3/4) and PDF viewer (1/4)
 if st.session_state.extracted_data:
-    # Determine the words from the first PDF's result
-    sample_pdf = list(st.session_state.extracted_data.keys())[0]
-    word_count = len(st.session_state.extracted_data[sample_pdf])
-    
-    # Prepare table data
     pdf_names = list(st.session_state.extracted_data.keys())
-    table_data = []
-    for i in range(word_count):
-        row = [f"Word #{i+1}"]
-        for pdf_name in pdf_names:
-            chunk = st.session_state.extracted_data[pdf_name][i]
-            row.append(chunk["content"] if chunk else "---")
-        table_data.append(row)
-    
-    # Layout: Table on the left, PDF viewer on the right
-    col1, col2 = st.columns([2, 3])
-    
+    # Assuming all PDFs yield the same number of words:
+    word_count = len(st.session_state.extracted_data[pdf_names[0]])
+
+    # 3:1 ratio columns -> table takes 3/4 screen, PDF viewer 1/4
+    col1, col2 = st.columns([3, 1])
+
     with col1:
-        st.write("Extracted Results (Click a cell to highlight):")
-        for row in table_data:
-            st.write("---")
-            col1, *other_cols = st.columns(len(row))
-            col1.write(row[0])  # word
-            for idx, cell in enumerate(other_cols):
-                pdf_name = pdf_names[idx]
-                chunk_index = table_data.index(row)
-                chunk_data = st.session_state.extracted_data[pdf_name][chunk_index]
+        st.write("Extracted Results (Click a cell to highlight the PDF):")
+        
+        # Build column weights for the table:
+        # The first (word) column is narrower, the rest share remaining space
+        pdf_count = len(pdf_names)
+        table_weights = [1] + [4] * pdf_count
+
+        # Render rows
+        for i in range(word_count):
+            row_cols = st.columns(table_weights)
+            # First column: "Word #x"
+            row_cols[0].write(f"Word #{i+1}")
+            
+            # Next columns: button for each pdf's chunk content
+            for j, pdf_name in enumerate(pdf_names):
+                chunk_data = st.session_state.extracted_data[pdf_name][i]
                 if chunk_data:
-                    if st.button(f"{row[0]}: {pdf_name}", key=f"{row[0]}-{pdf_name}"):
-                        # Set session state for selected PDF, page, and bbox
+                    chunk_content = chunk_data["content"]
+                    if row_cols[j+1].button(chunk_content, key=f"{pdf_name}-{i}"):
                         st.session_state.selected_pdf = pdf_name
                         st.session_state.selected_page = chunk_data["page_number"]
                         st.session_state.selected_bbox = chunk_data["bbox"]
-                        st.success(
-                            f"Selected chunk from {pdf_name} on page {chunk_data['page_number']} with bbox={chunk_data['bbox']}"
-                        )
-    
+                else:
+                    row_cols[j+1].write("---")
+
     with col2:
+        # Display PDF if selected
         if st.session_state.selected_pdf:
-            # Use the stored temporary file path
             pdf_path = st.session_state[st.session_state.selected_pdf]
             page = int(st.session_state.selected_page)
             bbox = st.session_state.selected_bbox
-            
+
             annotations = [{
                 "page": page,
                 "x": bbox["x1"],
@@ -123,15 +116,18 @@ if st.session_state.extracted_data:
                 "height": bbox["y2"] - bbox["y1"],
                 "color": "red"
             }]
-            
+
             st.write(f"Displaying {st.session_state.selected_pdf}, Page {page} with highlight:")
-            pages_to_render = [p for p in ([page, page + 1] if page != 0 else [page, page + 1])]
+
+            pages_to_render = (
+                [page, page + 1] if page != 0 else [page, page + 1]
+            )
             pdf_viewer(
                 input=pdf_path,
                 width="100%",
                 height=800,
                 annotations=annotations,
-                pages_to_render = pages_to_render,
+                pages_to_render=pages_to_render,
                 scroll_to_page=page,
                 render_text=True
             )
