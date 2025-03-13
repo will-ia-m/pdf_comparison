@@ -128,5 +128,6 @@ if st.session_state.extracted_data:
                     annotations=annotations,
                     pages_to_render=pages_to_render,
                     scroll_to_page=page,
-                    render_text=True
+                    render_text=True,
+                    annotation_outline_size = 3
                 )
