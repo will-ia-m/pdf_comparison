@@ -29,6 +29,8 @@ if "selected_page" not in st.session_state:
     st.session_state.selected_page = None
 if "selected_bbox" not in st.session_state:
     st.session_state.selected_bbox = None
+if "selected_row" not in st.session_state:
+    st.session_state.selected_row = None
 
 process_button = st.button("Process")
 
@@ -66,45 +68,44 @@ if process_button and uploaded_pdfs:
         else:
             st.error(f"Failed to extract words for {pdf_name}: {resp.text}")
 
-# Display the table (3/4) and PDF viewer (1/4)
+# If extracted data is available, we'll loop row by row, and for each row:
+#   - display the row content (label + PDF buttons) in the left 3/4
+#   - reserve the right 1/4 for the pdf_viewer if this row is selected.
 if st.session_state.extracted_data:
     pdf_names = list(st.session_state.extracted_data.keys())
-    # Assuming all PDFs yield the same number of words:
     word_count = len(st.session_state.extracted_data[pdf_names[0]])
 
-    # 3:1 ratio columns -> table takes 3/4 screen, PDF viewer 1/4
-    col1, col2 = st.columns([3, 1])
+    st.write("Extracted Results (Click on a content cell to display its PDF on the same row):")
 
-    with col1:
-        st.write("Extracted Results (Click a cell to highlight the PDF):")
-        
-        # Build column weights for the table:
-        # The first (word) column is narrower, the rest share remaining space
-        pdf_count = len(pdf_names)
-        table_weights = [1] + [4] * pdf_count
+    for i in range(word_count):
+        # Create two columns in a 3:1 ratio
+        row_cols = st.columns([8, 5])
 
-        # Render rows
-        for i in range(word_count):
-            row_cols = st.columns(table_weights)
-            # First column: "Word #x"
-            row_cols[0].write(f"Word #{i+1}")
-            
-            # Next columns: button for each pdf's chunk content
-            for j, pdf_name in enumerate(pdf_names):
+        with row_cols[0]:
+            # Label the row
+            st.write(f"Word #{i + 1}")
+
+            # One button per PDF
+            for pdf_name in pdf_names:
                 chunk_data = st.session_state.extracted_data[pdf_name][i]
                 if chunk_data:
                     chunk_content = chunk_data["content"]
-                    if row_cols[j+1].button(chunk_content, key=f"{pdf_name}-{i}"):
+                    if st.button(chunk_content, key=f"{pdf_name}-{i}"):
+                        # If clicked, store selection in session state
                         st.session_state.selected_pdf = pdf_name
                         st.session_state.selected_page = chunk_data["page_number"]
                         st.session_state.selected_bbox = chunk_data["bbox"]
+                        st.session_state.selected_row = i
                 else:
-                    row_cols[j+1].write("---")
+                    st.write("---")
 
-    with col2:
-        # Display PDF if selected
-        if st.session_state.selected_pdf:
-            pdf_path = st.session_state[st.session_state.selected_pdf]
+        # If this row is selected, show the pdf_viewer in the right 1/4 column
+        if (st.session_state.selected_row == i and 
+            st.session_state.selected_pdf and
+            st.session_state.selected_page is not None and 
+            st.session_state.selected_bbox):
+            pdf_name = st.session_state.selected_pdf
+            pdf_path = st.session_state[pdf_name]
             page = int(st.session_state.selected_page)
             bbox = st.session_state.selected_bbox
 
@@ -117,17 +118,15 @@ if st.session_state.extracted_data:
                 "color": "red"
             }]
 
-            st.write(f"Displaying {st.session_state.selected_pdf}, Page {page} with highlight:")
-
-            pages_to_render = (
-                [page, page + 1] if page != 0 else [page, page + 1]
-            )
-            pdf_viewer(
-                input=pdf_path,
-                width="100%",
-                height=800,
-                annotations=annotations,
-                pages_to_render=pages_to_render,
-                scroll_to_page=page,
-                render_text=True
-            )
+            with row_cols[1]:
+                st.write(f"Displaying {pdf_name}, Page {page} with highlight:")
+                pages_to_render = [page, page + 1] if page != 0 else [page, page + 1]
+                pdf_viewer(
+                    input=pdf_path,
+                    width="100%",
+                    height=800,  # adjust as desired for row height
+                    annotations=annotations,
+                    pages_to_render=pages_to_render,
+                    scroll_to_page=page,
+                    render_text=True
+                )
