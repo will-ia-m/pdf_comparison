@@ -2,10 +2,12 @@ import os
 import uuid
 import io
 import pdfplumber
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile, Body
+from fastapi.responses import JSONResponse, StreamingResponse
 import yaml
 from typing import List, Dict, Optional
+import pandas as pd
+from io import BytesIO
 
 app = FastAPI()
 
@@ -24,51 +26,52 @@ def parse_pdf(file_bytes: bytes, pdf_name: str):
     """
     Parse the PDF using pdfplumber and create chunk data with
     text, bounding box, page number, and a uuid.
+    Chunking: 21 lines at a time, with a newline after every 7 lines inside that chunk.
     """
     # If already in cache, return
     if pdf_name in PDF_CACHE:
         return PDF_CACHE[pdf_name]
     
     chunks = []
-    if 1:
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            for page_number, page in enumerate(pdf.pages, start=1):
-                lines = page.extract_words() or []
-                # Create blocks of 100 lines
-                for i in range(0, len(lines), 101):
-                    block = lines[i : i + 101]
-                    if not block:
-                        continue
-                    
-                    # Concatenate the text from each line, separated by spaces
-                    content = " ".join([item["text"] for item in block])
-                    
-                    # Merge bounding boxes:
-                    # x1, y1 = min of top-left corners
-                    # x2, y2 = max of bottom-right corners
-                    x1 = min(item["x0"] for item in block)
-                    y1 = min(item["top"] for item in block)
-                    x2 = max(item["x1"] for item in block)
-                    y2 = max(item["bottom"] for item in block)
-                    
-                    chunk_uuid = str(uuid.uuid4())
-                    chunk = {
-                        "content": content,
-                        "bbox": {
-                            "x1": x1,
-                            "y1": y1,
-                            "x2": x2,
-                            "y2": y2
-                        },
-                        "uuid": chunk_uuid,
-                        "page_number": page_number
-                    }
-                    chunks.append(chunk)
-        # Store in cache
-        PDF_CACHE[pdf_name] = chunks
-    # except Exception as e:
-    #     print(f"Error parsing PDF: {e}")
-    #     return []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page_number, page in enumerate(pdf.pages, start=1):
+            lines = page.extract_words() or []
+            for i in range(0, len(lines), 21):
+                block = lines[i : i + 21]
+                if not block:
+                    continue
+
+                # Build content with a '\n' after every 7 lines
+                # We'll still join line segments themselves with a space
+                chunk_lines = []
+                for idx, item in enumerate(block):
+                    chunk_lines.append(item["text"])
+                    # Insert a newline after every 7 lines, if not at end
+                    if (idx + 1) % 7 == 0 and (idx + 1) < len(block):
+                        chunk_lines.append("\n")
+
+                content = " ".join(chunk_lines)
+
+                # Merge bounding boxes:
+                x1 = min(item["x0"] for item in block)
+                y1 = min(item["top"] for item in block)
+                x2 = max(item["x1"] for item in block)
+                y2 = max(item["bottom"] for item in block)
+                
+                chunk_uuid = str(uuid.uuid4())
+                chunk = {
+                    "content": content,
+                    "bbox": {
+                        "x1": x1,
+                        "y1": y1,
+                        "x2": x2,
+                        "y2": y2
+                    },
+                    "uuid": chunk_uuid,
+                    "page_number": page_number
+                }
+                chunks.append(chunk)
+    PDF_CACHE[pdf_name] = chunks
     return chunks
 
 
@@ -101,6 +104,7 @@ def extract_words(pdf_name: str):
         match_chunk = None
         lower_word = word.lower()
         for chunk in chunks:
+            # remove double-spaces for a simpler substring match
             if lower_word in chunk["content"].lower().replace('  ',' '):
                 match_chunk = chunk
                 break
@@ -115,3 +119,29 @@ def get_words():
     Return the list of words to extract from config.yaml
     """
     return JSONResponse(WORDS_TO_EXTRACT)
+
+
+@app.post("/export_excel")
+def export_excel(data: List[Dict]):
+    """
+    Receive a list of {word, pdf_name, content, page_number, bbox} 
+    and produce an Excel file containing these records.
+    Return the Excel file as a streaming response.
+    """
+    # Convert incoming data to a DataFrame
+    df = pd.DataFrame(data)
+    # Reorder columns if desired, or keep them as is
+    # e.g. columns = ["word", "pdf_name", "content", "page_number", "bbox"]
+    # but let's just keep the same order that arrived
+
+    # Create an Excel in memory
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name="ExtractedData")
+
+    output.seek(0)
+
+    headers = {
+        'Content-Disposition': 'attachment; filename="modified_data.xlsx"'
+    }
+    return StreamingResponse(output, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
